@@ -406,7 +406,7 @@ function(pans_add_cmake_dependency)
             # 3. 由脚本完成缓存标记文件的写入
         # 目的 ： 当第三方库完成配置、编译和安装后，在对应的安装目录中创建一个缓存标记文件（Stamp File），并将当前依赖的 SHA256 缓存 Key 写入其中。
 
-        message(STATUS "CPU_PARALLEL_LEVEL : ${CMAKE_BUILD_PARALLEL_LEVEL}")
+        # message(STATUS "CPU_PARALLEL_LEVEL : ${CMAKE_BUILD_PARALLEL_LEVEL}")
     set(build_commands
         COMMAND ${configure_command}  # 构建
         COMMAND ${CMAKE_COMMAND} --build  "${build_dir}"  --config  "${PANS_THIRD_PARTY_BUILD_TYPE}"    --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}"  # 编译
@@ -775,12 +775,55 @@ endif()
     #   Config 模式	通过第三方库安装的 XXXConfig.cmake 或 xxx-config.cmake 查找 ， 文件由第三方库自身提供， 
 #  yaml-cpp-config.cmake 是yaml 自己的cmake 在构建阶段自己生成给的
 # PANS_YAML_CPP_INSTALL_DIR -> install_dir -> "${PANS_THIRD_PARTY_OUTPUT_DIR}/${dep_NAME}/${cache_key_short}
+# if(PANS_YAML_CPP_CACHE_COMPLETE)
+#     find_package(yaml-cpp
+#                 CONFIG
+#                 REQUIRED
+#                 PATHS "${PANS_YAML_CPP_INSTALL_DIR}"  #向 CMake 提供指定的包搜索前缀。 PATHS 并不是强制限定搜索目录，它只是为 CMake 增加候选搜索路径。
+#                 NO_DEFAULT_PATH
+#     )
 if(PANS_YAML_CPP_CACHE_COMPLETE)
-    find_package(yaml-cpp
-                CONFIG
-                REQUIRED
-                PATHS "${PANS_YAML_CPP_INSTALL_DIR}"  #向 CMake 提供指定的包搜索前缀。 
+
+    # 1. 明确指定本项目自己构建的 yaml-cpp 包配置目录
+    set(_pans_yaml_config_dir
+        "${PANS_YAML_CPP_INSTALL_DIR}/lib/cmake/yaml-cpp"
     )
+
+    # 2. 检查缓存中的配置文件是否存在
+    if(NOT EXISTS "${_pans_yaml_config_dir}/yaml-cpp-config.cmake")
+        message(FATAL_ERROR
+            "yaml-cpp config file missing: "
+            "${_pans_yaml_config_dir}/yaml-cpp-config.cmake"
+        )
+    endif()
+
+    # 3. 覆盖当前作用域中可能存在的旧 yaml-cpp_DIR 缓存值
+        #因为 yaml-cpp_DIR 是 find_package(yaml-cpp CONFIG ...) 使用的包配置目录变量
+        # 
+    set("yaml-cpp_DIR" "${_pans_yaml_config_dir}")
+
+    # 4. 只查找指定缓存目录中的 yaml-cpp
+    find_package(yaml-cpp
+        CONFIG
+        REQUIRED
+        PATHS "${_pans_yaml_config_dir}"
+        NO_DEFAULT_PATH
+    )
+
+    # 5. 验证导入目标确实已经创建
+    if(NOT TARGET yaml-cpp::yaml-cpp)
+        message(FATAL_ERROR
+            "yaml-cpp package found, but target "
+            "yaml-cpp::yaml-cpp is missing.\n"
+            "Config: ${yaml-cpp_CONFIG}"
+        )
+    endif()
+
+    message(STATUS
+        "Using cached yaml-cpp: ${yaml-cpp_CONFIG}"
+    )
+
+
 else()
     #  pans_add_cmake_dependency(...) 要等到 Build 阶段 才执行，而你需要在 Configure 阶段 就让 CMake 知道 yaml-cpp::yaml-cpp 是一个合法目标。
     #   所以先创建目标，提前声明未来的库文件位置，然后在构建阶段真正生成那个文件。 

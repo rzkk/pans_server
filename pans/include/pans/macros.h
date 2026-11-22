@@ -13,7 +13,7 @@
 #define PANS_ASSERT(x,w)\
     if(!(x)) [[unlikely]]{ \
         std::cerr<<__FILE__<<":"<<__LINE__<<" ASSERT "<< #x <<" failed .[  "<<  w <<" ].\nStacktrace: to do \n"; \
-        std::assert(x); \ 
+        std::assert(x); \
     } 
 
 //函数中的assert ,带有返回值的
