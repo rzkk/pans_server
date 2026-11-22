@@ -10,6 +10,7 @@ set -euo pipefail
 BUILD_DIR="build/debug"
 INSTALL_DIR="install/debug"
 
+rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
 
 # -S .   指定源码目录
 # -B     指定构建目录
@@ -28,6 +29,6 @@ cmake --build "$BUILD_DIR" --parallel $(( ($(nproc) * 3 + 1) / 2 ))
 #       --output-on-failure \
 #       --no-tests=error
 
-
-cmake --install "$BUILD_DIR" --prefix "$INSTALL_DIR"
-# --prefix "$BUILD_DIR/install"  # 指定安装目录
+cmake --install "$BUILD_DIR" 
+# --prefix "$INSTALL_DIR"
+# --prefix "$BUILD_DIR/install"  # 指定安装目录                             

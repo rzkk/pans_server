@@ -51,7 +51,7 @@ target_include_directories(pans
 
 # 使用 public  ， 本身就是为了将这份配置与pans库组合打包给用户用的
 target_link_libraries(pans PUBLIC   pans_options)    
-# target_link_libraries(pans PUBLIC Threads::Threads)
+target_link_libraries(pans PUBLIC Threads::Threads)
 
 
 # 主库可能需要更严格的编译选项
