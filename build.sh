@@ -10,7 +10,7 @@ set -euo pipefail
 BUILD_DIR="build/debug"
 INSTALL_DIR="install/debug"
 
-rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
+# rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
 
 
 PARALLEL_LEVEL=$(( ($(nproc) * 3 + 1) / 2 ))

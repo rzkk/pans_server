@@ -314,7 +314,7 @@ function(pans_add_cmake_dependency)
     # -G	指定生成器，例如 Ninja、Unix Makefiles ， Visual Studio 17 2022
     # -A：选择支持该选项的生成器所使用的目标平台，例如 Visual Studio 的 x64。
     # -T：选择支持该选项的生成器所使用的工具集，例如 Visual Studio 的 v143。
-    set(configure_command "${CMAKE_COMMAND} -S ${dep_SOURCE_DIR} -B ${build_dir} -G ${CMAKE_GENERATOR}")
+    set(configure_command "${CMAKE_COMMAND}" -S "${dep_SOURCE_DIR}" -B "${build_dir}" -G "${CMAKE_GENERATOR}")
     # message(STATUS "-------------------  ${configure_command}")
 
 #notes :
@@ -424,7 +424,7 @@ function(pans_add_cmake_dependency)
 
 #notes:
     # “这些 OUTPUT 文件是由这些 COMMAND 生成的。如果有人需要这些文件，就执行这些命令。
-    #  add_custom_command(                     # 告诉构建系统，如何生成某些指定的文件。
+    #  add_custom_command(                     # 告诉构建系统，如何生成某些指定的文件。 #告诉 CMake：如果需要生成 installed_outputs 中的文件，可以通过执行后面的 build_commands 来生成它们。
             #     OUTPUT  <输出文件...>                  # 这些文件是“产物”
             #     COMMAND <要执行的命令及参数...>        # 第一条命令
             #     DEPENDS <输入依赖...>
@@ -443,9 +443,9 @@ function(pans_add_cmake_dependency)
         #          | DEPENDS
         #          v
         # 要求输出文件存在
-        # libyaml-cpp.a
-        # yaml.h
-        # .pans-cache-...
+                # libyaml-cpp.a
+                # yaml.h
+                # .pans-cache-...
         #          |
         #          | 对应的生成规则
         #          v
@@ -453,10 +453,11 @@ function(pans_add_cmake_dependency)
         #          |
         #          v
         # 配置 → 编译 → 安装 → 写缓存标记
-    #   installed_outputs 里包含 ： 所有哨兵文件（如 include/yaml-cpp/yaml.h、静态库文件）， 加上一个 stamp 文件（${cache_stamp}）
-    #   add_custom_command 告诉 CMake：这些文件是由上面那 4 条命令依次生成的 ，  如果这些文件已经存在且是最新的，就不会重新执行命令。
+     #installed_outputs 里包含 ： 所有哨兵文件（如 include/yaml-cpp/yaml.h、静态库文件）， 加上一个 stamp 文件（${cache_stamp}）
+     #add_custom_command 告诉 CMake：这些文件是由上面那 4 条命令依次生成的 ，  如果这些文件已经存在且是最新的，就不会重新执行命令。
      # 优点：如果哨兵文件和 stamp 都存在，就完全跳过构建。特点：真正实现了“缓存命中时零开销”。
      # 注意：
+        #add_custom_command(OUTPUT ...) 只是定义了生成文件的方法，并不意味着每次构建都会自动执行。  必须有其他目标需要这些输出文件，构建系统才会考虑执行这条规则。
         # OUTPUT 文件必须被某个目标依赖，否则命令永远不会执行。
         # 路径最好用绝对路径，避免工作目录问题。
         # 多条 COMMAND 是顺序执行的，前面失败后面不会继续。
@@ -467,20 +468,53 @@ function(pans_add_cmake_dependency)
             OUTPUT ${installed_outputs}
             ${build_commands}
             COMMENT "Building and installing third-party dependency: ${dep_NAME}"
-            VERBATIM 
-            COMMAND_EXPAND_LISTS
+            VERBATIM        # 让 CMake 对命令参数做正确的转义，避免 shell 解释特殊字符（空格、引号、$ 等）。
+                            # /home/rzk/my project/output/ -> CMake 会对底层构建工具需要的特殊字符和路径参数进行适当转义，尽可能确保命令接收到的参数保持原样。
+            COMMAND_EXPAND_LISTS    # 展开命令参数中的 CMake 列表
+                                    # CMake 列表通常以分号分隔。  
+                                    #比如：  set(MY_ARGS "A;B;C")            
+                                    # add_custom_target(example
+                                    # COMMAND "${CMAKE_COMMAND}" -E echo "${MY_ARGS}"
+                                    # COMMAND_EXPAND_LISTS
+                                    # VERBATIM
+                                    # COMMAND_EXPAND_LISTS 会将命令参数中的列表进一步展开为多个参数。相当于传递： A B C ， 而不是将A;B;C 当成一个
         )
-        add_custom_target("${ready_target}" DEPENDS "${install_outputs}")
+
+        # add_custom_target() 负责创建一个能够让开发者或其他目标引用的构建目标。
+        # add_custom_target 的作用创建一个名为 pans_dep_yaml-cpp_ready 的目标。这个目标依赖于上面那些 OUTPUT 文件。当主工程或其他依赖需要这个目标时，就会触发检查，必要时执行构建。
+        add_custom_target("${ready_target}" DEPENDS ${installed_outputs})
     else()
         add_custom_target("${ready_target}"
             ${build_commands}
             COMMENT "Rebuilding thrid_party dependendcy : ${dep_NAME}"
-            VERBAITM
+            VERBATIM
             COMMAND_EXPAND_LISTS
         )
     endif()
 
 
+#notes
+    # 添加第三方库的依赖，用于建立第三方库之间的构建顺序
+    # add_dependencies( <目标> <依赖目标1> <依赖目标2>  ...  )
+    # protobuf 需要这种机制 
+    if(dep_DEPENDS)
+        add_dependencies("${ready_target}" ${dep_DEPENDS})
+    endif()
+
+    if(cache_complete AND PANS_REUSE_INSTALLED_DEPENDENCIES)
+        message(STATUS "${dep_NAME}: reusing ${install_dir}")
+    else()
+        message(STATUS "${dep_NAME}: build scheduled; output ${install_dir}")
+    endif()
+
+    # string(TOUPPER <输入字符串> <输出变量>) ： 将字符串转换为大写。 
+    string(TOUPPER "${dep_NAME}" variable_prefix)
+    string(REPLACE "-" "_" variable_prefix "${variable_prefix}")
+    # PARENT_SCOPE ：把变量设置到当前函数的直接父作用域。 
+    set("PANS_${variable_prefix}_INSTALL_DIR"   "${install_dir}" PARENT_SCOPE)
+    set("PANS_${variable_prefix}_CACHE_KEY"     "${cache_key}" PARENT_SCOPE)
+    set("PANS_${variable_prefix}_CACHE_COMPLETE" "${cache_complete}" PARENT_SCOPE)
+    set("PANS_${variable_prefix}_DEPENDENCY_TARGET" "${ready_target}" PARENT_SCOPE)
 
 endfunction()
 
@@ -504,10 +538,178 @@ pans_add_cmake_dependency(
         "-DABSL_PROPAGATE_CXX_STD=ON"
         "-DABSL_BUILD_TESTING=OFF"
     SENTINELS
-        "lib/cmake/absl/abslConfig.cmake"
-        "include/absl/base/config.h"
-        "lib/${_pans_absl_library}"
+        "lib/cmake/abseil/abseilConfig.cmake"
+        "include/abseil/base/config.h"
+        "lib/${_pans_abseil_library}"
 )
 
 
+# -------- abseil-cpp --------
+# yaml-cpp 是一个 C++ 库，用于解析和生成 YAML 格式的文件。
+# _pans_yaml_source : "${PANS_THIRD_PARTY_DIR}/yaml-cpp"  -> "rzkpans/third_party/yaml-cpp"   # yaml 的文件夹名
+# _pans_yaml_revision ： yaml 的版本号
+set(_pans_yaml_source "${PANS_THIRD_PARTY_DIR}/yaml-cpp")
+pans_get_source_revision("${_pans_yaml_source}" _pans_yaml_revision)
+string(REPLACE "@NAME@" "yaml-cpp" _pans_yaml_library "${_pans_static_library}" )
+# _pans_yaml_library : 就变成  libyaml-cpp.a  
+message(STATUS "${_pans_yaml_library} ")
+pans_add_cmake_dependency(
+    NAME yaml-cpp
+    SOURCE_DIR "${_pans_yaml_source}"
+    SOURCE_REVISION "${_pans_yaml_revision}"
+    CMAKE_ARGS 
+        "-DBUILD_SHARED_LIBS=OFF"
+        "-DYAML_BUILD_SHARED_LIBS=OFF"
+        "-DYAML_CPP_BUILD_TESTS=OFF"
+        "-DYAML_CPP_BUILD_TOOLS=OFF"
+        "-DYAML_CPP_FORMAT_SOURCE=OFF"
+        "-DYAML_CPP_INSTALL=ON"
+        "-DYAML_CPP_DISABLE_UNINSTALL=ON"
+    SENTINELS
+        "lib/cmake/yaml-cpp/yaml-cpp-config.cmake"
+        "include/yaml-cpp/yaml.h"
+        "lib/${_pans_yaml_library}"
+)
+
+#notes
+# add_custom_target()
+            #add_custom_target(
+            #     <目标名称>
+            #     [ALL]
+            #     [COMMAND <命令>]
+            #     [DEPENDS <依赖>...]
+            # )  
+# ALL :表示默认构建 ，  当执行 cmake --build 时就会构建
+    #   cmake --build  ->  构建 pans_third_party_dependencies -> 检查下面六个依赖 ->  依赖也会参与构建
+    #   add_library()、add_executable()：创建的普通构建目标默认参与 ALL，除非通过 EXCLUDE_FROM_ALL 等机制排除。
+    #   add_custom_target()：默认不参与 ALL。
+    #   add_custom_target(name ALL)：让自定义目标参与默认构建。
+    #   add_dependencies(A B)：使构建 A 时需要先满足 B 的依赖。
+    #   单独准备所有第三方库： cmake --build build --target pans_third_party_dependencies
+    #   只准备 yaml-cpp：      cmake --build build --target pans_dep_yaml_cpp_ready
+    #   只准备 protobuf（并自动满足其上游依赖）：cmake --build build --target pans_dep_protobuf_ready 
+# 注： 并不保证 pans 自身一定在全部第三方库准备好后才开始编译 ， 多个默认构建的顺序未知
+        # 需要明确 ： add_dependencies(
+                            #     pans
+                            #     pans_third_party_dependencies
+                            # )
+
+# 目标自身没有直接执行的命令。主要作用是组织其他构建目标。 聚合目标（Aggregate Target）
+add_custom_target(pans_third_party_dependencies ALL)
+
+# 这些target 是pans_add_cmake_dependency 最后的 set("PANS_${variable_prefix}_DEPENDENCY_TARGET" "${ready_target}" PARENT_SCOPE) 
+# 将它们添加到聚合目标中
+# 以后只要构建pans_third_party_dependencies ， 就会依赖这些target
+add_dependencies(pans_third_party_dependencies  
+    "${PANS_ABSEIL_CPP_DEPENDENCY_TARGET}"
+    "${PANS_YAML_CPP_DEPENDENCY_TARGET}"
+)
+
+
+
+
+# -------- pans 当前直接依赖 --------
+    # find_package(
+            #     <包名称>
+            #     [REQUIRED]
+            #     [COMPONENTS ...]
+            # )
+        # 使用 CMake 提供的线程查找模块，检测当前平台的线程支持，并取得使用线程功能所需的编译和链接配置。
+        # 成功后通常可以使用： Threads::Threads （CMake 提供的导入目标）
 find_package(Threads REQUIRED)  #这是给 pans 用的 
+
+
+
+# PkgConfig 和 libdw：查找 Linux 系统依赖
+    #   STREQUAL ： CMake 的字符串相等比较操作符。 
+    #   CMAKE_SYSTEM_NAME ： Linux ， CMake 当前配置的目标操作系统平台	典型值Linux	Linux ， Windows	Windows ，  macOS	Darwin
+    #   PkgConfig ：pkg-config 常用于查询已经安装的库所需的：头文件目录。库文件目录。链接参数。编译参数。库版本等信息。
+                    #例如  pkg-config --cflags libdw  与 pkg-config --libs libdw  命令可以得到使用 libdw 所需的相关编译和链接参数。
+# pkg_check_modules： 
+    #   pkg_check_modules(<变量前缀>  [REQUIRED]  [IMPORTED_TARGET] <模块名称> ) 
+    #   
+#libdw 是 elfutils 提供的 DWARF 调试信息相关库，可用于解析调试信息等功能。
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PANS_LIBDW            # 	查找结果变量使用的前缀
+                        REQUIRED            #   找不到则停止配置
+                        IMPORTED_TARGET     #   创建便于其他目标使用的 CMake 导入目标 ， 查找成功后，会创建：PkgConfig::PANS_LIBDW
+                                            #    命令规则：PkgConfig::<prefix>
+                        libdw )              #    需要通过 pkg-config 查找的模块名称
+    
+endif()
+
+
+#PANS_YAML_CPP_CACHE_COMPLETE 定义在 是pans_add_cmake_dependency最后的 set("PANS_${variable_prefix}_CACHE_COMPLETE" "${cache_complete}" PARENT_SCOPE)
+#find_package() 常见两种查找模式：
+    #   Module 模式	通过 FindXXX.cmake 模块查找     
+            #   FindXXX.cmake ： 1 通常就会自带一批 Find 模块 ， 如 /usr/share/cmake-3.xx/Modules/ 下的 FindThreads.cmake ， FindPkgConfig.cmake 等
+            #                   2 项目开发者自己编写 ，FindMyLogger.cmake 放到自己项目里
+                                    # list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules" )
+                                    #   find_package(MyLogger REQUIRED)
+                                    #CMAKE_MODULE_PATH :用于指定额外的 CMake 模块搜索目录。
+    #   Config 模式	通过第三方库安装的 XXXConfig.cmake 或 xxx-config.cmake 查找 
+#  yaml-cpp-config.cmake 是yaml 自己的cmake 在构建阶段自己生成给的
+if(PANS_YAML_CPP_CACHE_COMPLETE)
+    find_package(yaml-cpp
+                CONFIG
+                REQUIRED
+                PATHS "${PANS_YAML_CPP_INSTALL_DIR}"  #向 CMake 提供指定的包搜索前缀。
+    )
+else()
+    # yaml 没有编译安装。 作者选择预先创建一个指向未来安装结果的导入目标。
+    #   先生成一个 include ,  后面创建的 IMPORTED 目标要声明一个头文件搜索目录，而 CMake 在生成构建系统时可能检查这个路径是否存在。
+    file(MAKE_DIRECTORY "${PANS_YAML_CPP_INSTALL_DIR}/include")
+     #   add_library(... STATIC IMPORTED GLOBAL) #外部已经有一个静态库，或者稍后会由其他构建任务提供这个静态库。当前工程不负责通过这个目标编译它。
+        #     STATIC	这是一个静态库类型的目标
+        #   IMPORTED	该库由当前 CMake 工程之外提供
+        #   GLOBAL	    这个导入目标可在当前 CMake 配置的其他目录作用域使用
+    add_library(yaml-cpp::yaml-cpp STATIC IMPORTED GLOBAL)
+    # set_target_properties( <目标名称>  PROPERTIES  <属性1> <值1>
+                                            #         <属性2> <值2> )
+    set_target_properties( yaml-cpp::yaml-cpp   PROPERTIES
+        IMPORTED_LOCATION "${PANS_YAML_CPP_INSTALL_DIR}/lib/${_pans_yaml_library}"  # 这个外部静态库的文件位于什么位置。 
+        INTERFACE_COMPILE_DEFINITIONS YAML_CPP_STATIC_DEFINE        # 告诉使用该目标的其他目标，在编译时需要获得 YAML_CPP_STATIC_DEFINE 这个宏定义。
+        INTERFACE_INCLUDE_DIRECTORIES "${PANS_YAML_CPP_INSTALL_DIR}/include" #使用 yaml-cpp::yaml-cpp 目标的代码，需要将这个目录加入头文件搜索路径
+    )
+endif()
+
+
+#这一部分是为了在最终安装 pans 项目时，统一收集第三方库的安装结果。
+# IN ITEMS 与 IN LISTS ： 
+    #  IN LISTS ：  后面提供的是列表变量名。
+    # IN ITEMS  : 后面直接提供需要遍历的元素。
+#三方库的 第一次安装 : 是安装到第三方库中的 缓存安装目录中 ： third_party/output/yaml-cpp/abc123/
+    #    第二次安装：是安装到 pans 的安装目录中   （pans 的 install(DIRECTORY ...) 规则）
+        #install(
+        #     DIRECTORY <源目录>
+        #     DESTINATION <目标目录>
+        #     [PATTERN <模式> EXCLUDE]
+        # )
+    #如： 
+        #install(
+        #     DIRECTORY "/tmp/yaml-cpp/"
+        #     DESTINATION "."               # CMAKE_INSTALL_PREFIX 
+        # )
+foreach(_pans_dependency_install_dir IN ITEMS
+     "${PANS_YAML_CPP_INSTALL_DIR}"
+     "${PANS_ABSEIL_CPP_INSTALL_DIR}"
+    # "${PANS_ZLIB_INSTALL_DIR}"
+    # "${PANS_PROTOBUF_INSTALL_DIR}"
+    # "${PANS_TINYXML2_INSTALL_DIR}"
+    # "${PANS_KCP_INSTALL_DIR}"
+)
+    install(
+        DIRECTORY   "${_pans_dependency_install_dir}/"
+        DESTINATION  "."
+        PATTERN ".pans-cache-*" EXCLUDE
+    )
+endforeach()
+
+# install(
+#     DIRECTORY "${PANS_THIRD_PARTY_DIR}/rapidjson/include/"
+#     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+# )
+
+unset(_pans_required_submodules)
+unset(_pans_static_library)
