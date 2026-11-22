@@ -53,6 +53,16 @@ target_include_directories(pans
 target_link_libraries(pans PUBLIC   pans_options)    
 target_link_libraries(pans PUBLIC Threads::Threads)
 
+# 用来查看函数堆栈的
+if(WIN32)
+    target_link_libraries(pans PRIVATE dbghelp)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(pans PRIVATE PkgConfig::PANS_LIBDW)
+endif()
+
+target_link_libraries(pans PUBLIC yaml-cpp::yaml-cpp)
+
+add_dependencies(pans pans_third_party_dependencies)
 
 # 主库可能需要更严格的编译选项
 target_compile_options(pans PRIVATE
@@ -60,6 +70,9 @@ target_compile_options(pans PRIVATE
         -Werror          # 将警告视为错误（主库严格要求）
     >
 ) 
+
+
+
 
 ## 库的安装配置
 #install()：定义安装规则，控制编译产物和头文件最终安装到哪里。

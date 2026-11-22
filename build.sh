@@ -32,6 +32,6 @@ cmake --build "$BUILD_DIR" --parallel "$PARALLEL_LEVEL"
 #       --output-on-failure \
 #       --no-tests=error
 
-cmake --install "$BUILD_DIR" 
+# cmake --install "$BUILD_DIR" 
 # --prefix "$INSTALL_DIR"
 # --prefix "$BUILD_DIR/install"  # 指定安装目录                             

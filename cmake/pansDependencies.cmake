@@ -544,7 +544,7 @@ pans_add_cmake_dependency(
 )
 
 
-# -------- abseil-cpp --------
+# -------- yaml-cpp --------
 # yaml-cpp 是一个 C++ 库，用于解析和生成 YAML 格式的文件。
 # _pans_yaml_source : "${PANS_THIRD_PARTY_DIR}/yaml-cpp"  -> "rzkpans/third_party/yaml-cpp"   # yaml 的文件夹名
 # _pans_yaml_revision ： yaml 的版本号
@@ -570,6 +570,117 @@ pans_add_cmake_dependency(
         "include/yaml-cpp/yaml.h"
         "lib/${_pans_yaml_library}"
 )
+
+# -------- zlib --------
+set(_pans_zlib_source "${PANS_THIRD_PARTY_DIR}/zlib")
+pans_get_source_revision("${_pans_zlib_source}" _pans_zlib_revision)
+string(REPLACE "@NAME@" "z" _pans_zlib_library "${_pans_static_library}")
+if(MSVC)
+    string(REPLACE "@NAME@" "zlibstatic" _pans_zlib_library "${_pans_static_library}")
+endif()
+pans_add_cmake_dependency(
+    NAME zlib
+    SOURCE_DIR "${_pans_zlib_source}"
+    SOURCE_REVISION "${_pans_zlib_revision}"
+    CMAKE_ARGS
+        "-DZLIB_BUILD_TESTING=OFF"
+        "-DZLIB_BUILD_SHARED=OFF"
+        "-DZLIB_BUILD_STATIC=ON"
+        "-DZLIB_INSTALL=ON"
+    SENTINELS
+        "lib/cmake/zlib/ZLIBConfig.cmake"
+        "include/zlib.h"
+        "lib/${_pans_zlib_library}"
+)
+
+# -------- tinyxml2 --------
+set(_pans_tinyxml2_source "${PANS_THIRD_PARTY_DIR}/tinyxml2")
+pans_get_source_revision("${_pans_tinyxml2_source}" _pans_tinyxml2_revision)
+string(REPLACE "@NAME@" "tinyxml2" _pans_tinyxml2_library "${_pans_static_library}")
+pans_add_cmake_dependency(
+    NAME tinyxml2
+    SOURCE_DIR "${_pans_tinyxml2_source}"
+    SOURCE_REVISION "${_pans_tinyxml2_revision}"
+    CMAKE_ARGS
+        "-DBUILD_SHARED_LIBS=OFF"
+        "-Dtinyxml2_SHARED_LIBS=OFF"
+        "-Dtinyxml2_BUILD_TESTING=OFF"
+    SENTINELS
+        "lib/cmake/tinyxml2/tinyxml2-config.cmake"
+        "include/tinyxml2.h"
+        "lib/${_pans_tinyxml2_library}"
+)
+
+# -------- kcp --------
+# kcp 要求cmake至少 4.0 , pans的cmake版本不够 , 所以需要自己写一个 cmakelists.txt
+# kcp 源码的hash 与 自己的pans_kcp_camkelists 的hash 
+set(_pans_kcp_source "${PANS_THIRD_PARTY_DIR}/kcp") # kcp 源码目录
+pans_get_source_revision("${_pans_kcp_source}" _pans_kcp_revision)
+file(SHA256 "${PROJECT_SOURCE_DIR}/cmake/kcp/CMakeLists.txt" _pans_kcp_wrapper_hash) #计算包装脚本的 SHA256
+string(REPLACE "@NAME@" "kcp" _pans_kcp_library "${_pans_static_library}")
+pans_add_cmake_dependency(
+    NAME kcp
+    SOURCE_DIR "${PROJECT_SOURCE_DIR}/cmake/kcp"       # 给 cmake -S 的参数  ， 放的是 cmakelists.txt的路径
+    SOURCE_REVISION "${_pans_kcp_revision}"
+    KEY_MATERIAL "wrapper=${_pans_kcp_wrapper_hash}"   # 传入包装脚本哈希， 
+    CMAKE_ARGS
+        "-DPANS_KCP_SOURCE_DIR=${_pans_kcp_source}"  # 告诉包装工程，真正的 KCP 源码在哪里。
+        "-DBUILD_SHARED_LIBS=OFF"
+    SENTINELS
+        "lib/cmake/kcp/kcp-config.cmake"
+        "include/ikcp.h"
+        "lib/${_pans_kcp_library}"
+)
+
+# -------- protobuf, 依赖预编译的 Abseil 与 zlib--------
+set(_pans_protobuf_source "${PANS_THIRD_PARTY_DIR}/protobuf")
+pans_get_source_revision("${_pans_protobuf_source}" _pans_protobuf_revision)
+string(REPLACE "@NAME@" "protobuf" _pans_protobuf_library "${_pans_static_library}")
+if(MSVC)
+    string(REPLACE "@NAME@" "libprotobuf" _pans_protobuf_library "${_pans_static_library}")
+endif()
+#CMAKE_EXECUTABLE_SUFFIX 是 CMake 用于表示当前目标平台可执行文件后缀的变量。 在win上是 exe 
+set(_pans_protoc "bin/protoc${CMAKE_EXECUTABLE_SUFFIX}")
+pans_add_cmake_dependency(
+    NAME protobuf
+    SOURCE_DIR "${_pans_protobuf_source}"
+    SOURCE_REVISION "${_pans_protobuf_revision}"
+    KEY_MATERIAL
+        "abseil=${PANS_ABSEIL_CPP_CACHE_KEY}"
+        "zlib=${PANS_ZLIB_CACHE_KEY}"
+    DEPENDS
+        "${PANS_ABSEIL_CPP_DEPENDENCY_TARGET}"
+        "${PANS_ZLIB_DEPENDENCY_TARGET}"
+    CMAKE_ARGS
+        "-DCMAKE_CXX_STANDARD=20"
+        "-DBUILD_SHARED_LIBS=OFF"
+        "-Dprotobuf_BUILD_SHARED_LIBS=OFF"
+        "-Dprotobuf_BUILD_TESTS=OFF"
+        "-Dprotobuf_BUILD_CONFORMANCE=OFF"
+        "-Dprotobuf_BUILD_EXAMPLES=OFF"
+        "-Dprotobuf_LOCAL_DEPENDENCIES_ONLY=ON"
+        "-Dprotobuf_WITH_ZLIB=ON"
+        "-Dabsl_DIR=${PANS_ABSEIL_CPP_INSTALL_DIR}/lib/cmake/absl"
+        "-DZLIB_ROOT=${PANS_ZLIB_INSTALL_DIR}"
+        "-DZLIB_INCLUDE_DIR=${PANS_ZLIB_INSTALL_DIR}/include"
+        "-DZLIB_LIBRARY=${PANS_ZLIB_INSTALL_DIR}/lib/${_pans_zlib_library}"
+    SENTINELS
+        "lib/cmake/protobuf/protobuf-config.cmake"
+        "include/google/protobuf/message.h"
+        "lib/${_pans_protobuf_library}"
+        "${_pans_protoc}"
+)
+
+# RapidJSON 是纯头文件库，无需生成 output 缓存。
+if(NOT TARGET rapidjson::rapidjson)
+    add_library(rapidjson::rapidjson INTERFACE IMPORTED GLOBAL)
+    set_target_properties(rapidjson::rapidjson PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${PANS_THIRD_PARTY_DIR}/rapidjson/include"
+    )
+endif()
+message(STATUS "rapidjson: header-only; using ${PANS_THIRD_PARTY_DIR}/rapidjson/include")
+
+
 
 #notes
 # add_custom_target()
@@ -602,7 +713,11 @@ add_custom_target(pans_third_party_dependencies ALL)
 # 以后只要构建pans_third_party_dependencies ， 就会依赖这些target
 add_dependencies(pans_third_party_dependencies  
     "${PANS_ABSEIL_CPP_DEPENDENCY_TARGET}"
+    "${PANS_ZLIB_DEPENDENCY_TARGET}"
     "${PANS_YAML_CPP_DEPENDENCY_TARGET}"
+    "${PANS_TINYXML2_DEPENDENCY_TARGET}"
+    "${PANS_KCP_DEPENDENCY_TARGET}"
+    "${PANS_PROTOBUF_DEPENDENCY_TARGET}"
 )
 
 
@@ -629,15 +744,24 @@ find_package(Threads REQUIRED)  #这是给 pans 用的
     #   pkg_check_modules(<变量前缀>  [REQUIRED]  [IMPORTED_TARGET] <模块名称> ) 
     #   
 #libdw 是 elfutils 提供的 DWARF 调试信息相关库，可用于解析调试信息等功能。
+#pkg_check_modules 之后 CMake 可以提供类似以下变量：PANS_LIBDW_FOUND
+# PANS_LIBDW_VERSION
+# PANS_LIBDW_INCLUDE_DIRS
+# PANS_LIBDW_LIBRARY_DIRS
+# PANS_LIBDW_LIBRARIES
+# PANS_LIBDW_CFLAGS
+# PANS_LIBDW_LDFLAGS
+#这是是如何使用该目标的示例。使用时还需要链接 PkgConfig::PANS_LIBDW，目前只是完成了依赖查找。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(PANS_LIBDW            # 	查找结果变量使用的前缀
+    pkg_check_modules( PANS_LIBDW            # 	查找结果变量使用的前缀
                         REQUIRED            #   找不到则停止配置
                         IMPORTED_TARGET     #   创建便于其他目标使用的 CMake 导入目标 ， 查找成功后，会创建：PkgConfig::PANS_LIBDW
                                             #    命令规则：PkgConfig::<prefix>
                         libdw )              #    需要通过 pkg-config 查找的模块名称
-    
 endif()
+
+
 
 
 #PANS_YAML_CPP_CACHE_COMPLETE 定义在 是pans_add_cmake_dependency最后的 set("PANS_${variable_prefix}_CACHE_COMPLETE" "${cache_complete}" PARENT_SCOPE)
@@ -648,21 +772,23 @@ endif()
                                     # list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/modules" )
                                     #   find_package(MyLogger REQUIRED)
                                     #CMAKE_MODULE_PATH :用于指定额外的 CMake 模块搜索目录。
-    #   Config 模式	通过第三方库安装的 XXXConfig.cmake 或 xxx-config.cmake 查找 
+    #   Config 模式	通过第三方库安装的 XXXConfig.cmake 或 xxx-config.cmake 查找 ， 文件由第三方库自身提供， 
 #  yaml-cpp-config.cmake 是yaml 自己的cmake 在构建阶段自己生成给的
+# PANS_YAML_CPP_INSTALL_DIR -> install_dir -> "${PANS_THIRD_PARTY_OUTPUT_DIR}/${dep_NAME}/${cache_key_short}
 if(PANS_YAML_CPP_CACHE_COMPLETE)
     find_package(yaml-cpp
                 CONFIG
                 REQUIRED
-                PATHS "${PANS_YAML_CPP_INSTALL_DIR}"  #向 CMake 提供指定的包搜索前缀。
+                PATHS "${PANS_YAML_CPP_INSTALL_DIR}"  #向 CMake 提供指定的包搜索前缀。 
     )
 else()
-    # yaml 没有编译安装。 作者选择预先创建一个指向未来安装结果的导入目标。
+    #  pans_add_cmake_dependency(...) 要等到 Build 阶段 才执行，而你需要在 Configure 阶段 就让 CMake 知道 yaml-cpp::yaml-cpp 是一个合法目标。
+    #   所以先创建目标，提前声明未来的库文件位置，然后在构建阶段真正生成那个文件。 
     #   先生成一个 include ,  后面创建的 IMPORTED 目标要声明一个头文件搜索目录，而 CMake 在生成构建系统时可能检查这个路径是否存在。
     file(MAKE_DIRECTORY "${PANS_YAML_CPP_INSTALL_DIR}/include")
      #   add_library(... STATIC IMPORTED GLOBAL) #外部已经有一个静态库，或者稍后会由其他构建任务提供这个静态库。当前工程不负责通过这个目标编译它。
         #     STATIC	这是一个静态库类型的目标
-        #   IMPORTED	该库由当前 CMake 工程之外提供
+        #   IMPORTED	当前 CMake 工程外部已经提供或者将来会提供的库
         #   GLOBAL	    这个导入目标可在当前 CMake 配置的其他目录作用域使用
     add_library(yaml-cpp::yaml-cpp STATIC IMPORTED GLOBAL)
     # set_target_properties( <目标名称>  PROPERTIES  <属性1> <值1>
@@ -679,8 +805,11 @@ endif()
 # IN ITEMS 与 IN LISTS ： 
     #  IN LISTS ：  后面提供的是列表变量名。
     # IN ITEMS  : 后面直接提供需要遍历的元素。
-#三方库的 第一次安装 : 是安装到第三方库中的 缓存安装目录中 ： third_party/output/yaml-cpp/abc123/
-    #    第二次安装：是安装到 pans 的安装目录中   （pans 的 install(DIRECTORY ...) 规则）
+#三方库的 第一次安装 : 
+                #       build_commands  中  --install "${build_dir}" --config "${PANS_THIRD_PARTY_BUILD_TYPE}":
+                # "-DCMAKE_INSTALL_PREFIX=${install_dir}"     在configCommand 中定义的
+                #  是安装到第三方库中的 缓存安装目录中 ： third_party/output/yaml-cpp/abc123/
+    #    第二次安装：是安装到 pans 的安装目录中  （pans 的 install(DIRECTORY ...) 规则）
         #install(
         #     DIRECTORY <源目录>
         #     DESTINATION <目标目录>
@@ -694,22 +823,50 @@ endif()
 foreach(_pans_dependency_install_dir IN ITEMS
      "${PANS_YAML_CPP_INSTALL_DIR}"
      "${PANS_ABSEIL_CPP_INSTALL_DIR}"
-    # "${PANS_ZLIB_INSTALL_DIR}"
-    # "${PANS_PROTOBUF_INSTALL_DIR}"
-    # "${PANS_TINYXML2_INSTALL_DIR}"
-    # "${PANS_KCP_INSTALL_DIR}"
-)
-    install(
-        DIRECTORY   "${_pans_dependency_install_dir}/"
+    "${PANS_ZLIB_INSTALL_DIR}"
+    "${PANS_PROTOBUF_INSTALL_DIR}"
+    "${PANS_TINYXML2_INSTALL_DIR}"
+    "${PANS_KCP_INSTALL_DIR}"
+)                           #不带 / ： 表示安装时要带着 “yaml-cpp/...” 
+    install(   
+        DIRECTORY   "${_pans_dependency_install_dir}/" # 表示安装的是/tmp/yaml-cpp/ 内部的内容，而不是把 yaml-cpp 目录本身额外复制到目标目录。
         DESTINATION  "."
-        PATTERN ".pans-cache-*" EXCLUDE
+        PATTERN ".pans-cache-*" EXCLUDE  # 作用是排除符合该文件名模式的缓存标记文件。
     )
 endforeach()
 
-# install(
-#     DIRECTORY "${PANS_THIRD_PARTY_DIR}/rapidjson/include/"
-#     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-# )
+install(
+    DIRECTORY "${PANS_THIRD_PARTY_DIR}/rapidjson/include/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+
+
 
 unset(_pans_required_submodules)
 unset(_pans_static_library)
+
+
+
+# notes：cmake_parse_arguments() 主要处理三种关键字。
+# 类型	        含义	            本例
+# Option	不需要额外值的开关	没有
+# One-value	后面跟一个值	NAME、SOURCE_DIR、SOURCE_REVISION
+# Multi-value	后面可以跟多个值	CMAKE_ARGS、SENTINELS、DEPENDS、KEY_MATERIAL
+#
+
+# pansConfig.cmake.in
+# 为安装后的 pans 生成包配置文件的模板 , 解决当 pans 已经编译并安装完成，其他 C++ 项目如何通过 find_package(pans CONFIG REQUIRED) 找到 pans，以及 pans 所依赖的第三方库
+# 在这里 就是为了生成这里使用的 pansConfig.cmake
+
+#       文件	                作用	                    什么时候使用
+# pansConfig.cmake.in	开发者编写的配置模板	        构建 pans 时作为输入
+# pansConfig.cmake	    从模板生成的正式配置文件	    其他项目执行 find_package(pans) 时加载
+# pansTargets.cmake	    描述 pans 导出目标的文件	    由 pansConfig.cmake 加载
+
+# 通常在顶层 CMakeLists.txt 中使用：pans 的配置阶段  CMake 就会把 .in 模板转换为正式的 pansConfig.cmake。
+    # include(CMakePackageConfigHelpers)
+    # configure_package_config_file(
+    #     "${PROJECT_SOURCE_DIR}/cmake/pansConfig.cmake.in"
+    #     "${PROJECT_BINARY_DIR}/pansConfig.cmake"
+    #     INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/pans"
+    # )
