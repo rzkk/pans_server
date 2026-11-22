@@ -80,7 +80,7 @@ function(pans_init_third_party_submodules)
     
     # 收集哪些子模块缺失或内容不完整
     # IN LISTS 后面写的是“变量名”，不是 ${变量值}。
-    foreach(enrty IN LISTS _pans_required_submodules)
+    foreach(entry IN LISTS _pans_required_submodules)
         #语法：string(REPLACE 原字符串 替换字符串 结果变量 输入字符串)
         # "a|b" -> "a;b"；分号让 parts 成为含两个元素的 CMake 列表。
         string(REPLACE "|" ";" parts "${entry}")
@@ -180,21 +180,334 @@ endfunction()
 
 #给它一个第三方库的信息，它就自动帮你创建配置、编译、安装、缓存和依赖管理任务。
 #给子模块生成一个构建规则
-function(pans_add_cmake_dependency)
+# 解析函数的命名参数
+    # cmake_parse_arguments() 主要处理三种关键字。三组参数依次是：布尔选项、单值参数、多值参数。
+        # 类型	        含义	                   本例
+        # Option	    不需要额外值的开关	        没有
+        # One-value	    后面跟一个值	        NAME、SOURCE_DIR、SOURCE_REVISION
+        # Multi-value	后面可以跟多个值	CMAKE_ARGS、SENTINELS、DEPENDS、KEY_MATERIAL
+        # PARSE_ARGV    0 表示从本函数的第 0 个实参开始解析，并把结果放进 dep_ 前缀变量。
+    # 如：
+            # pans_add_cmake_dependency(         # 调用的时候 的样子
+            # NAME yaml-cpp
+            # SOURCE_DIR "/tmp/yaml-cpp"
+            # SOURCE_REVISION "abc123"         # 用的是 git的 commit ID
 
-    
+            # CMAKE_ARGS
+            #     "-DBUILD_SHARED_LIBS=OFF"
+            #     "-DYAML_CPP_BUILD_TESTS=OFF"
+
+            # SENTINELS
+            #     "include/yaml-cpp/yaml.h"
+            #     "lib/libyaml-cpp.a"
+            # ) dep_NAME
+            #解析后自动生成：     # dep_NAME = yaml-cpp
+                                # dep_SOURCE_DIR = /tmp/yaml-cpp
+                                # dep_SOURCE_REVISION = abc123
+                                # dep_CMAKE_ARGS =
+                                #     -DBUILD_SHARED_LIBS=OFF
+                                #     -DYAML_CPP_BUILD_TESTS=OFF
+                                # dep_SENTINELS =           #sentinels：哨兵；岗哨；守卫者
+                                #     include/yaml-cpp/yaml.h
+                                #     lib/libyaml-cpp.a
+    # DEPENDS ： 三方库 依赖的 其他库
+    # KEY_MATERIAL ： 与依赖相关的其他材料，例如配置文件、资源文件等   ， kcp 传入自己的pans_camkelists.txt 的hash 
+function(pans_add_cmake_dependency)
+    cmake_parse_arguments(PARSE_ARGV 0 dep "" 
+        "NAME;SOURCE_DIR;SOURCE_REVISION" 
+        "CMAKE_ARGS;SENTINELS;DEPENDS;KEY_MATERIAL")
+
+    if(NOT dep_NAME OR NOT dep_SOURCE_REVISION OR NOT dep_SOURCE_DIR)
+        message(FATAL_ERROR "pans_add_cmake_dependency requires NAME, SOURCE_DIR and SOURCE_REVISION")
+    endif()
+
+    if(NOT dep_SENTINELS)
+        message(FATAL_ERROR "pans_add_cmake_dependency(${dep_NAME}) requires SENTINELS")
+    endif()
+ # notes :
+        # 假设你之前用：GCC 13 + Linux + x86_64 + Release
+        # 现在切换成 ：Clang 18 + Linux + x86_64 + Debug   ， 就不能再复用以前的静态库
+        # CONCAT : 将多个变量连接成一个字符串 , 只是拼接字符串，不会自动添加分隔符。
+        # SHA256: 计算字符串的 SHA256 哈希值
+    # 所有可能影响编译结果的因子 拼成字符串，保存下来
+    # 最终缓存 Key
+            #     =
+            # SHA256(
+            #     KCP源码版本
+            #     + 包装脚本SHA256
+            #     + 编译器
+            #     + 目标平台
+            #     + 构建类型
+            #     + CMake配置参数
+            #     + 其他配置因素
+            # )
+    string(CONCAT cache_material
+        "${dep_SOURCE_REVISION};${CMAKE_C_COMPILER};${CMAKE_C_COMPILER_ID};"
+        "${CMAKE_C_COMPILER_VERSION};${CMAKE_CXX_COMPILER};${CMAKE_CXX_COMPILER_ID};"
+        "${CMAKE_CXX_COMPILER_VERSION};${CMAKE_SYSTEM_NAME};${CMAKE_SYSTEM_PROCESSOR};"
+        "${CMAKE_GENERATOR};${CMAKE_GENERATOR_PLATFORM};${CMAKE_GENERATOR_TOOLSET};"
+        "${CMAKE_OSX_ARCHITECTURES};${CMAKE_OSX_DEPLOYMENT_TARGET};"
+        "${CMAKE_MSVC_RUNTIME_LIBRARY};${PANS_THIRD_PARTY_BUILD_TYPE};static;"
+        "${dep_CMAKE_ARGS};${dep_KEY_MATERIAL}"
+    )
+
+    # 以上配置变化都会触发新的编译，不会误用前一个结果，从而保证第三方库的  ABI一致   #ABI : 二进制接口
+    string(SHA256 cache_key "${cache_material}")
+
+    # string(SUBSTRING <string> <begin> <length> <output_variable>)
+    string(SUBSTRING ${cache_key} 0 16 cache_key_short)   # SUBSTRING : 从字符串中提取子字符串     
+
+    # PANS_THIRD_PARTY_OUTPUT_DIR:  ${PANS_THIRD_PARTY_DIR}/output
+    # 不同构建参数 有不同的版本
+    # /project/third_party/output/
+    # ├── build/
+    # │   └── yaml-cpp-1234567890abcdef/
+    # │       ├── CMakeCache.txt
+    # │       ├── build.ninja
+    # │       └── 其他编译中间产物
+    # │
+    # └── yaml-cpp/
+    #     └── 1234567890abcdef/
+    #         ├── include/
+    #         ├── lib/
+    #         └── .pans-cache-完整SHA256值
+    set(install_dir "${PANS_THIRD_PARTY_OUTPUT_DIR}/${dep_NAME}/${cache_key_short}")#保存最终安装的头文件、静态库、CMake 配置文件 以cache_key 记录版本
+    set(build_dir "${PANS_THIRD_PARTY_OUTPUT_DIR}/build/${dep_NAME}-${cache_key_short}") #放中间产物、CMakeCache.txt、构建规则
+    set(cache_stamp "${install_dir}/.pans-cache-${cache_key}")  # pans-cache-${cache_key}: 标记版本   # stamp : 邮票印记  # 
+    # 注： 这里只用文件名来标记版本 ， 文件内容并没有用到 
+
+
+    # 只有全部哨兵文件和缓存标记都存在，才认为缓存完整。
+    #  installed_outputs ：   cache_stamp + 一组sentinel 文件
+    set(installed_outputs "${cache_stamp}" ) # installed_outputs 是一组文件路径，稍后会传给 add_custom_command(OUTPUT ...)，让底层构建系统追踪这些文件
+    set(cache_complete TRUE)  #cache_complete 是配置阶段计算出的布尔变量，用于当前脚本中的判断和状态提示。
+    foreach(sentinel IN LISTS dep_SENTINELS)  # 遍历哨兵   , 
+        # 将所有的哨兵文件变成绝对路径
+        if(IS_ABSOLUTE "${sentinel}")    # IS_ABSOLUTE :   用于判断给定的路径字符串是否为绝对路径
+            set(sentinel_path "${sentinel}")
+        else()
+            set(sentinel_path "${install_dir}/${sentinel}")
+        endif()
+      
+        # 向末尾追加元素 list(APPEND)
+        # list(APPEND <列表变量名> <元素1> [<元素2> ...])
+        list(APPEND installed_outputs "${sentinel_path}")
+
+        if(NOT EXISTS "${sentinel_path}")  # 文件不存在
+            set(cache_complete FALSE)
+        endif()
+
+        # message(STATUS "------------------- ${sentinel_path}")                                     
+    endforeach()
+    # exists 
+    # # 只判断了 文件是否存在 并没有判断文件内容
+    if(NOT EXISTS "${cache_stamp}")
+        set(cache_complete FALSE) # 只有全部关键输出文件和缓存标记都存在，才保持为 TRUE。
+    endif()
+
+#notes: 
+    # 传递编译器和工具链 ， 希望第三方库尽量使用与主工程一致的编译器。
+    #  CMAKE_COMMAND: CMake 的可执行文件路径   如：有可能是 /usr/bin/cmake
+    #选项	作用
+    # -S	指定源码目录，CMake 会从这里查找 CMakeLists.txt
+    # -B	指定构建目录，用于生成 CMakeCache.txt 和构建文件
+    # -G	指定生成器，例如 Ninja、Unix Makefiles ， Visual Studio 17 2022
+    # -A：选择支持该选项的生成器所使用的目标平台，例如 Visual Studio 的 x64。
+    # -T：选择支持该选项的生成器所使用的工具集，例如 Visual Studio 的 v143。
+    set(configure_command "${CMAKE_COMMAND} -S ${dep_SOURCE_DIR} -B ${build_dir} -G ${CMAKE_GENERATOR}")
+    # message(STATUS "-------------------  ${configure_command}")
+
+#notes :
+    # 然后把当前项目使用的目标平台和编译工具集传递给第三方库，保持一致
+    # 如果主工程指定了目标平台和编译工具集，就将相同的工具集配置传递给第三方库，尽量保证第三方库与 pans 使用一致的编译工具链。
+    #CMAKE_GENERATOR_PLATFORM: 用于指定构建系统生成器（Generator）所使用的目标平台，通常用于选择编译目标架构，例如 x64、Win32、ARM64。
+        # 如 windows 下 ：cmake -S . -B build -G "Visual Studio 17 2022" -A x64  
+            # -A :指定目标平台为 64 位 
+            # 此时 ： 
+                # message(STATUS "Generator: ${CMAKE_GENERATOR}")          -----> -- Generator: Visual Studio 17 2022
+                # message(STATUS "Platform: ${CMAKE_GENERATOR_PLATFORM}")  ------>  -- Platform: x64
+            #常见平台值： Win32：32 位 x86
+            #            x64：64 位 x86-64
+            #            ARM64：64 位 ARM
+        #注 ：1  CMAKE_GENERATOR_PLATFORM 的值通常由 CMake 自动推导，或者在调用 CMake 时通过 -A 参数显式指定。
+        #     2  -A 只适用于支持平台选择的生成器，不是所有 CMake 生成器都支持它 ， 例如 Unix Makefiles 就不支持 -A 参数。
+    # CMAKE_GENERATOR_TOOLSET ：使用什么编译工具集 
+        # windows下使用， 如 -T -v143  ,  得到 CMAKE_GENERATOR_TOOLSET = v143
+        # Linux 下常用的 Ninja、Unix Makefiles 通常不使用 CMAKE_GENERATOR_TOOLSET
+    if(CMAKE_GENERATOR_PLATFORM)
+        list(APPEND configure_command -A  "${CMAKE_GENERATOR_PLATFORM}")
+    endif()
+    if(CMAKE_GENERATOR_TOOLSET)
+        list(APPEND configure_command -T  "${CMAKE_GENERATOR_TOOLSET}")
+    endif()
+
+#notes  :
+    # "-DCMAKE_INSTALL_LIBDIR=lib" ：   告诉遵循 GNUInstallDirs 等约定的第三方工程，库文件安装目录使用 lib
+    #                                   但该变量是否实际生效，取决于第三方工程是否使用了它。
+    #  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON" ：要求相关编译目标默认使用位置无关代码。
+    # BUILD_TESTING ：用于关闭支持该标准测试选项的第三方工程的测试构建。
+    # 告诉 CMake，以后把编译好的库安装到哪个目录。 
+    list(APPEND configure_command 
+        "-DCMAKE_INSTALL_PREFIX=${install_dir}"    #指定安装的根目录，  第三方库最终安装的位置，保存公开头文件、静态库和 CMake 包配置文件。
+        "-DCMAKE_INSTALL_LIBDIR=lib"               # 指定库文件的安装目录 ，  即 库文件将被安装到 ${install_dir}/lib
+        "-DCMAKE_BUILD_TYPE=${PANS_THIRD_PARTY_BUILD_TYPE}"
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+        "-DBUILD_TESTING=OFF"
+    )
+    # 让主工程和第三方库尽量使用一致的编译器，是合理的工程设计
+    if(CMAKE_C_COMPILER)
+        list(APPEND configure_command "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
+    endif()
+    if(CMAKE_CXX_COMPILER)
+        list(APPEND configure_command "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+    endif()
+
+    #CMAKE_TOOLCHAIN_FILE :
+        #  tool chain : 工具链  
+        #工具链文件包含的信息可能远远多于编译器路径。工具链文件更像是一个完整的构建环境配置包。
+        # 
+    if(CMAKE_TOOLCHAIN_FILE) 
+        list(APPEND configure_command "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+    endif()
+    if(CMAKE_MSVC_RUNTIME_LIBRARY)
+        list(APPEND configure_command "-DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}")
+    endif()
+    if(CMAKE_OSX_ARCHITECTURES) #指定 Apple 平台目标架构
+        list(APPEND configure_command "-DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
+    endif()
+    if(CMAKE_OSX_DEPLOYMENT_TARGET) # 指定 Apple 系统最低部署版本
+        list(APPEND configure_command "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
+    list(APPEND configure_command ${dep_CMAKE_ARGS}) # 把调用者传入的、每个第三方库特有的配置选项追加进去。
+
+
+#notes:
+#    把完整构建流程保存到build_commands裏面，一共有四步, 分别是cmake, 编译，安装，写入缓存标记
+     # COMMAND ${configure_command} ：  
+    # 展开后类似：cmake \
+                    # -S third_party/yaml-cpp \
+                    # -B third_party/output/build/yaml-cpp-1234567890abcdef \
+                    # -G Ninja \
+                    # -DCMAKE_INSTALL_PREFIX=... \
+                    # -DCMAKE_BUILD_TYPE=Release \
+                    # -DBUILD_SHARED_LIBS=OFF
+    # 这里实际上是在 pans 的构建任务中，启动了另一个独立的 CMake 配置过程。
+    # 2 ：  cmake --build build/yaml-cpp --config Release --parallel 8
+    # CMAKE_BUILD_PARALLEL_LEVEL 在 CMake 中主要是一个环境变量 ， 用于控制并行编译的线程数。  该变量定义在顶层 cmakelists 
+    # cmake --install build/yaml-cpp --config Release   告诉 CMake，现在执行这个构建目录对应的安装规则。
+        # 还可以在执行--install 时指定目录
+            # 如： cmake --install build/yaml-cpp  --prefix /opt/my-yaml-cpp
+            # 前一个是 构建目录，后一个是安装目录
+    # COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"
+        # -P 表示以脚本模式执行 .cmake 文件    ， 
+        #等于：
+            # 1. 向脚本传递两个变量。
+            # 2. 执行对应的 .cmake 脚本。
+            # 3. 由脚本完成缓存标记文件的写入
+        # 目的 ： 当第三方库完成配置、编译和安装后，在对应的安装目录中创建一个缓存标记文件（Stamp File），并将当前依赖的 SHA256 缓存 Key 写入其中。
+
+        message(STATUS "CPU_PARALLEL_LEVEL : ${CMAKE_BUILD_PARALLEL_LEVEL}")
+    set(build_commands
+        COMMAND ${configure_command}  # 构建
+        COMMAND ${CMAKE_COMMAND} --build  "${build_dir}"  --config  "${PANS_THIRD_PARTY_BUILD_TYPE}"    --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}"  # 编译
+        COMMAND ${CMAKE_COMMAND} --install ${build_dir} --config "${PANS_THIRD_PARTY_BUILD_TYPE}"   # 安装
+        COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"  # 写入缓存标记
+     )
+    # 多个 COMMAND 会按顺序执行  ，但是若第一条命令里的 Shell 环境变量修改，不会自动保留到第二条命令 即认为它们一定是在同一个持续存在的 Shell 会话里执行。
+
+
+# 先生成目标名称 ： 若dep_NAME = yaml-cpp  ， 那么ready_target = pans_dep_yaml-cpp_ready
+    set(ready_target "pans_dep_${dep_NAME}_ready")
+    # 将 - 替换为 _。 pans_dep_yaml_cpp_ready
+    string(REPLACE "-" "_" ready_target "${ready_target}")
+
+
+#notes:
+    # “这些 OUTPUT 文件是由这些 COMMAND 生成的。如果有人需要这些文件，就执行这些命令。
+    #  add_custom_command(                     # 告诉构建系统，如何生成某些指定的文件。
+            #     OUTPUT  <输出文件...>                  # 这些文件是“产物”
+            #     COMMAND <要执行的命令及参数...>        # 第一条命令
+            #     DEPENDS <输入依赖...>
+            #     COMMENT <显示的信息>
+            #     VERBATIM
+            # )
+    # 如 ：add_custom_command(
+            #     OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/hello.txt"
+            #     COMMAND "${CMAKE_COMMAND}" -E touch  "${CMAKE_CURRENT_BINARY_DIR}/hello.txt"
+            #     COMMENT "Generating hello.txt"
+            #     VERBATIM
+            # )
+    # 构建目标
+        # pans_dep_yaml_cpp_ready
+        #          |
+        #          | DEPENDS
+        #          v
+        # 要求输出文件存在
+        # libyaml-cpp.a
+        # yaml.h
+        # .pans-cache-...
+        #          |
+        #          | 对应的生成规则
+        #          v
+        # add_custom_command()
+        #          |
+        #          v
+        # 配置 → 编译 → 安装 → 写缓存标记
+    #   installed_outputs 里包含 ： 所有哨兵文件（如 include/yaml-cpp/yaml.h、静态库文件）， 加上一个 stamp 文件（${cache_stamp}）
+    #   add_custom_command 告诉 CMake：这些文件是由上面那 4 条命令依次生成的 ，  如果这些文件已经存在且是最新的，就不会重新执行命令。
+     # 优点：如果哨兵文件和 stamp 都存在，就完全跳过构建。特点：真正实现了“缓存命中时零开销”。
+     # 注意：
+        # OUTPUT 文件必须被某个目标依赖，否则命令永远不会执行。
+        # 路径最好用绝对路径，避免工作目录问题。
+        # 多条 COMMAND 是顺序执行的，前面失败后面不会继续。
+        # add_custom_command 不能直接依赖其他目标（只能依赖文件），所以本文件用 add_dependencies 来建立第三方库之间的顺序。
+        # stamp 文件的作用：即使所有哨兵文件都存在，只要 stamp 不存在或内容不匹配，也会重新构建。这是一种比单纯依赖文件时间戳更可靠的机制
+    if(PANS_REUSE_INSTALLED_DEPENDENCIES )
+        add_custom_command(
+            OUTPUT ${installed_outputs}
+            ${build_commands}
+            COMMENT "Building and installing third-party dependency: ${dep_NAME}"
+            VERBATIM 
+            COMMAND_EXPAND_LISTS
+        )
+        add_custom_target("${ready_target}" DEPENDS "${install_outputs}")
+    else()
+        add_custom_target("${ready_target}"
+            ${build_commands}
+            COMMENT "Rebuilding thrid_party dependendcy : ${dep_NAME}"
+            VERBAITM
+            COMMAND_EXPAND_LISTS
+        )
+    endif()
+
+
+
 endfunction()
 
+# CMAKE_STATIC_LIBRARY_PREFIX : 静态库的前缀 , 就是 lib
+# CMAKE_STATIC_LIBRARY_SUFFIX ： 静态库后缀 ， 就是 .a 
+# _pans_static_library :  lib@NAME@.a 
 set(_pans_static_library "${CMAKE_STATIC_LIBRARY_PREFIX}@NAME@${CMAKE_STATIC_LIBRARY_SUFFIX}")
-
 # -------- abseil-cpp --------
 set(_pans_abseil_source "${PANS_THIRD_PARTY_DIR}/abseil-cpp")
 pans_get_source_revision("${_pans_abseil_source}" _pans_abseil_revision)
-
-string(REPLACE "@NAME@" "abseil_base" _pans_abseil_library "{_pans_static_library}" )
-
-message(STATUS "${_pans_static_library}  ,${CMAKE_STATIC_LIBRARY_PREFIX},  ${CMAKE_STATIC_LIBRARY_SUFFIX}   ")
-message(STATUS "${_pans_static_library} ")
+string(REPLACE "@NAME@" "abseil_base" _pans_abseil_library "${_pans_static_library}" )
+# _pans_abseil_library : 就变成  libabseil_base.a  
+message(STATUS "${_pans_abseil_library} ")
+pans_add_cmake_dependency(
+    NAME abseil-cpp
+    SOURCE_DIR "${_pans_abseil_source}"
+    SOURCE_REVISION "${_pans_abseil_revision}"
+    CMAKE_ARGS 
+        "-DBUILD_SHARED_LIBS=OFF"
+        "-DABSL_ENABLE_INSTALL=ON"
+        "-DABSL_PROPAGATE_CXX_STD=ON"
+        "-DABSL_BUILD_TESTING=OFF"
+    SENTINELS
+        "lib/cmake/absl/abslConfig.cmake"
+        "include/absl/base/config.h"
+        "lib/${_pans_absl_library}"
+)
 
 
 find_package(Threads REQUIRED)  #这是给 pans 用的 

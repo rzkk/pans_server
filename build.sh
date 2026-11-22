@@ -12,15 +12,18 @@ INSTALL_DIR="install/debug"
 
 rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
 
+
+PARALLEL_LEVEL=$(( ($(nproc) * 3 + 1) / 2 ))
 # -S .   指定源码目录
 # -B     指定构建目录
-cmake -S . -B "$BUILD_DIR"
+# DCMAKE_BUILD_PARALLEL_LEVEL : 主要编译第三方库使用的
+cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_PARALLEL_LEVEL="$PARALLEL_LEVEL"
 
 # --parallel：启用并行编译
 # nproc：获取当前可用的 CPU 逻辑处理器数量
 #cmake --build "$BUILD_DIR"  --parallel "($nproc)"
 #cmake --build "$BUILD_DIR"  --parallel 8
-cmake --build "$BUILD_DIR" --parallel $(( ($(nproc) * 3 + 1) / 2 ))
+cmake --build "$BUILD_DIR" --parallel "$PARALLEL_LEVEL"
 
 # --test-dir：指定测试所在的 构建目录  # 不是目标文件目录
 # --output-on-failure：只在测试失败时输出详细信息
