@@ -12,7 +12,7 @@ INSTALL_DIR="install/debug"
 
 BUILD_LOG="$BUILD_DIR/build.log"
 INSTALL_LOG="$BUILD_DIR/install.log"
-rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
+# rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
 
 
 PARALLEL_LEVEL=$(( ($(nproc) * 3 + 1) / 2 ))

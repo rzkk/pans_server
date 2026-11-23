@@ -183,19 +183,29 @@ endfunction()
 #   - 失败时打印日志尾部并终止构建
 # 用法：pans_wrap_dependency_step(<输出变量> <日志目录> <步骤名> <标题> <命令...>)
 function(pans_wrap_dependency_step)
-    cmake_parse_arguments(PARSE_ARGV 0 dep "" 
-        "out_var;log_dir;step;title"  
+    cmake_parse_arguments(PARSE_ARGV 0 dep ""
+        "out_var;log_dir;step;title"
         "wrap_command")
+    if("${dep_out_var}" STREQUAL "" OR
+       "${dep_log_dir}" STREQUAL "" OR
+       "${dep_step}" STREQUAL "" OR
+       "${dep_wrap_command}" STREQUAL "")
+        message(FATAL_ERROR
+            "pans_wrap_dependency_step requires out_var, log_dir, step and wrap_command")
+    endif()
+    if(dep_UNPARSED_ARGUMENTS OR dep_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR
+            "pans_wrap_dependency_step: unexpected or missing arguments")
+    endif()
 
-        message(STATUS "--------------------${dep_wrap_command}")
-    # set(${dep_out_var}
-    #     "${CMAKE_COMMAND}"
-    #     "-DLOG_FILE=${dep_log_dir}/${dep_step}.log"
-    #     "-DLOG_TITLE=${dep_title}"
-    #     "-DCMD=${escaped_cmd}"
-    #     -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
-    #     PARENT_SCOPE
-    # )
+    set(${dep_out_var}
+        "${CMAKE_COMMAND}"
+        "-DLOG_FILE=${dep_log_dir}/${dep_step}.log"
+        "-DLOG_TITLE=${dep_title}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
+        -- ${dep_wrap_command}
+        PARENT_SCOPE
+    )
 endfunction()
 
 #给它一个第三方库的信息，它就自动帮你创建配置、编译、安装、缓存和依赖管理任务。
@@ -427,12 +437,12 @@ function(pans_add_cmake_dependency)
         # 目的 ： 当第三方库完成配置、编译和安装后，在对应的安装目录中创建一个缓存标记文件（Stamp File），并将当前依赖的 SHA256 缓存 Key 写入其中。
 
         # message(STATUS "CPU_PARALLEL_LEVEL : ${CMAKE_BUILD_PARALLEL_LEVEL}")
-    set(build_commands
-        COMMAND ${configure_command}  # 构建
-        COMMAND ${CMAKE_COMMAND} --build  "${build_dir}"  --config  "${PANS_THIRD_PARTY_BUILD_TYPE}"    --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}"  # 编译
-        COMMAND ${CMAKE_COMMAND} --install ${build_dir} --config "${PANS_THIRD_PARTY_BUILD_TYPE}"   # 安装
-        COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"  # 写入缓存标记
-     )
+    # set(build_commands
+    #     COMMAND ${configure_command}  # 构建
+    #     COMMAND ${CMAKE_COMMAND} --build  "${build_dir}"  --config  "${PANS_THIRD_PARTY_BUILD_TYPE}"    --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}"  # 编译
+    #     COMMAND ${CMAKE_COMMAND} --install ${build_dir} --config "${PANS_THIRD_PARTY_BUILD_TYPE}"   # 安装
+    #     COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"  # 写入缓存标记
+    #  )
     # 多个 COMMAND 会按顺序执行  ，但是若第一条命令里的 Shell 环境变量修改，不会自动保留到第二条命令 即认为它们一定是在同一个持续存在的 Shell 会话里执行。
 
 ### 为了减少第三方库在终端上的日志 ， 替换上上面的 set(build_commands...)
@@ -450,17 +460,28 @@ function(pans_add_cmake_dependency)
     set(_pans_dep_install_cmd
         ${CMAKE_COMMAND} --install "${build_dir}" --config "${PANS_THIRD_PARTY_BUILD_TYPE}"
     )
+    pans_wrap_dependency_step(
+        out_var _pans_step_configure
+        log_dir "${_pans_dep_log_dir}"
+        step configure
+        title "${dep_NAME}_configure"
+        wrap_command ${configure_command}
+    )
+    pans_wrap_dependency_step(
+        out_var _pans_step_build
+        log_dir "${_pans_dep_log_dir}"
+        step build
+        title "${dep_NAME}_build"
+        wrap_command ${_pans_dep_build_cmd}
+    )
+    pans_wrap_dependency_step(
+        out_var _pans_step_install
+        log_dir "${_pans_dep_log_dir}"
+        step install
+        title "${dep_NAME}_install"
+        wrap_command ${_pans_dep_install_cmd}
+    )
 
-
-    set(_pans_step_configure
-        "${CMAKE_COMMAND}" "-DLOG_FILE=${_pans_dep_log_dir}/configure.log" "-DLOG_TITLE=${dep_NAME}_configure" "${configure_command})" -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
-    )
-    set(_pans_step_build
-        "${CMAKE_COMMAND}" "-DLOG_FILE=${_pans_dep_log_dir}/build.log" "-DLOG_TITLE=${dep_NAME}_build" "${_pans_dep_build_cmd})" -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
-    )
-    set(_pans_step_install
-        "${CMAKE_COMMAND}" "-DLOG_FILE=${_pans_dep_log_dir}/install.log" "-DLOG_TITLE=${dep_NAME}_install" "${_pans_dep_install_cmd})" -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
-    )
     set(build_commands
         COMMAND ${_pans_step_configure}
         COMMAND ${_pans_step_build}
@@ -596,7 +617,7 @@ pans_add_cmake_dependency(
         "-DABSL_PROPAGATE_CXX_STD=ON"
         "-DABSL_BUILD_TESTING=OFF"
     SENTINELS
-        "lib/cmake/abseil/abslConfig.cmake"
+        "lib/cmake/absl/abslConfig.cmake"
         "include/absl/base/config.h"
         "lib/${_pans_absl_library}"
 )
@@ -812,11 +833,11 @@ find_package(Threads REQUIRED)  #这是给 pans 用的
 #这是是如何使用该目标的示例。使用时还需要链接 PkgConfig::PANS_LIBDW，目前只是完成了依赖查找。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(  PANS_LIBDW            # 	查找结果变量使用的前缀
+    pkg_check_modules(  PANS_LIBDW          # 	查找结果变量使用的前缀
                         REQUIRED            #   找不到则停止配置
                         IMPORTED_TARGET     #   创建便于其他目标使用的 CMake 导入目标 ， 查找成功后，会创建：PkgConfig::PANS_LIBDW
                                             #    命令规则：PkgConfig::<prefix>
-                        libdw )              #    需要通过 pkg-config 查找的模块名称
+                        libdw )             #    需要通过 pkg-config 查找的模块名称
 endif()
 
 
