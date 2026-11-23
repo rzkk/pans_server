@@ -613,7 +613,7 @@ pans_add_cmake_dependency(
         "-DABSL_PROPAGATE_CXX_STD=ON"
         "-DABSL_BUILD_TESTING=OFF"
     SENTINELS
-        "lib/cmake/abseil/abslConfig.cmake"
+        "lib/cmake/absl/abslConfig.cmake"
         "include/absl/base/config.h"
         "lib/${_pans_absl_library}"
 )
