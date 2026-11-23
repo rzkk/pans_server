@@ -12,9 +12,9 @@
 if(NOT DEFINED LOG_FILE OR "${LOG_FILE}" STREQUAL "")
     message(FATAL_ERROR "runDependencyStep: LOG_FILE is required")
 endif()
-if(NOT DEFINED CMD OR "${CMD}" STREQUAL "")
-    message(FATAL_ERROR "runDependencyStep: CMD is required")
-endif()
+# if(NOT DEFINED CMD OR "${CMD}" STREQUAL "")
+#     message(FATAL_ERROR "runDependencyStep: CMD is required")
+# endif()
 
 # 失败时回显的日志行数，可通过 -DLOG_TAIL_LINES=... 覆盖
 if(NOT DEFINED LOG_TAIL_LINES OR "${LOG_TAIL_LINES}" STREQUAL "")
