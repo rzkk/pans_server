@@ -4,7 +4,7 @@
 #include<cassert> 
 #include<iostream>
 #include<cstdint>
-
+#include<pans/utils/system_utils.h>
 
 // 对外提供的接口 ： x 为false 时进入断言
 // unlikely : c++20 , 告诉编译器这个条件极大概率不成立
@@ -12,7 +12,7 @@
 //带说明文字的assert  , 带有info参数
 #define PANS_ASSERT(x,w)\
     if(!(x)) [[unlikely]]{ \
-        std::cerr<<__FILE__<<":"<<__LINE__<<" ASSERT "<< #x <<" failed .[  "<<  w <<" ].\nStacktrace: to do \n"; \
+        std::cerr<<__FILE__<<":"<<__LINE__<<" ASSERT "<< #x <<" failed .[  "<<  w <<" ].\n Stacktrace: \n"<< pans::GetBacktrace();\
         std::assert(x); \
     } 
 

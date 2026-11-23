@@ -1,7 +1,19 @@
 #include<pans/logger/log_level.h>
 #include<iostream>
-int main(){
-    pans::LogLevel::Level level = pans::LogLevel::Level::LOG_LV_DEBUG;
+#include<pans/macros.h>
 
-    std::cout << pans::LogLevel::ToString(level) << std::endl;
+void func2(int x ){
+    std::cout<<x<<std::endl;
+    PANS_ASSERT(x > 0, "x must be positive");
+}
+
+void func1(int x ){
+    std::cout<<x<<std::endl;
+    func2(x);
+}
+int main(){
+    
+    std::cout<< sizeof( std::size_t)<< std::endl;
+    std::cout<< sizeof( std::uint64_t)<< std::endl;
+    func1(4);
 }
