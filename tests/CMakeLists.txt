@@ -13,20 +13,6 @@ set( PANS_TEST_OUTPUT_DIRECTORY  "${PROJECT_SOURCE_DIR}/bin/tests" )  #二进制
                                   #  "${CMAKE_BINARY_DIR}/bin/tests") 
                                   # CMAKE_BINARY_DIR 指向整个 CMake 构建树的顶层目录
 
-function(use_relative_file_macro02 target)
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        # 把 /path/to/project/ 前缀映射为空，__FILE__ 就变成 pans/src/xxx.cpp
-        target_compile_options(${target} PRIVATE
-            "-fmacro-prefix-map=${PROJECT_SOURCE_DIR}/="
-        )
-    elseif(MSVC)
-        # MSVC 没有等价选项，只能裁剪调试信息里的路径
-        target_compile_options(${target} PRIVATE
-            "/d1trimfile:${PROJECT_SOURCE_DIR}/"
-        )
-    endif()
-endfunction()
-
 #每个 cpp 文件都是一个单独的测试文件
 foreach(TEST_SOURCE IN  LISTS PANS_TEST_SOURCES)
 

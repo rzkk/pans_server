@@ -3,7 +3,7 @@
 
 #include<cassert> 
 #include<iostream>
-#include<cstdint>
+
 #include<pans/utils/system_utils.h>
 
 // 对外提供的接口 ： x 为false 时进入断言
@@ -55,26 +55,6 @@
 
 
 
-// 定义非法值 
-#define INVALID64 (~0ULL)
-#define INVALID32 0xFFFFFFFF
-#define INVALID16 0xFFFF
-#define INVALID8  0xFF
-
-//定义 最大值
-#define MAX_U8 0xFF
-#define MAX_U16 0xFFFF
-#define MAX_U32 0xFFFFFFFF
-#define MAX_U64 (~0ULL)
-
-using u8    = std::uint8_t;
-using s8    = std::int8_t;
-using u16   = std::uint16_t;
-using s16   = std::int16_t;
-using u32   = std::uint32_t;
-using s32   = std::int32_t;
-using u64   = std::uint64_t;
-using s64   = std::int64_t;
 
 
 

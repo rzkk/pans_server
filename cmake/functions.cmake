@@ -16,7 +16,8 @@ function(use_relative_file_macro target)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         # 把 /path/to/project/ 前缀映射为空，__FILE__ 就变成 pans/src/xxx.cpp
         target_compile_options(${target} PRIVATE
-            "-fmacro-prefix-map=${PROJECT_SOURCE_DIR}/="
+            # "-fmacro-prefix-map=${PROJECT_SOURCE_DIR}/="
+            "-ffile-prefix-map=${PROJECT_SOURCE_DIR}/="
         )
     elseif(MSVC)
         # MSVC 没有等价选项，只能裁剪调试信息里的路径

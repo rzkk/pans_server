@@ -133,7 +133,7 @@ function(pans_init_third_party_submodules)
 
 
     #再次检查
-    foreach(enrty IN LISTS _pans_required_submodules)
+    foreach(entry IN LISTS _pans_required_submodules)
       
         string(REPLACE "|" ";" parts "${entry}")
         list(GET parts 0 submodule_path)
@@ -176,6 +176,21 @@ function(pans_get_source_revision  source_dir output_variable)
     endif()
     set(${output_variable} ${revision} PARENT_SCOPE)
     # PARENT_SCOPE ： 将变量设置到父作用域，而不是当前函数作用域。 
+endfunction()
+
+# 把一条第三方库构建命令包装成：
+#   - 正常输出写入 <log_dir>/<step>.log
+#   - 失败时打印日志尾部并终止构建
+# 用法：pans_wrap_dependency_step(<输出变量> <日志目录> <步骤名> <标题> <命令...>)
+function(pans_wrap_dependency_step out_var log_dir step title)
+    set(${out_var}
+        "${CMAKE_COMMAND}"
+        "-DLOG_FILE=${log_dir}/${step}.log"
+        "-DLOG_TITLE=${title}"
+        "-DCMD=${ARGN}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
+        PARENT_SCOPE
+    )
 endfunction()
 
 #给它一个第三方库的信息，它就自动帮你创建配置、编译、安装、缓存和依赖管理任务。
@@ -407,13 +422,47 @@ function(pans_add_cmake_dependency)
         # 目的 ： 当第三方库完成配置、编译和安装后，在对应的安装目录中创建一个缓存标记文件（Stamp File），并将当前依赖的 SHA256 缓存 Key 写入其中。
 
         # message(STATUS "CPU_PARALLEL_LEVEL : ${CMAKE_BUILD_PARALLEL_LEVEL}")
-    set(build_commands
-        COMMAND ${configure_command}  # 构建
-        COMMAND ${CMAKE_COMMAND} --build  "${build_dir}"  --config  "${PANS_THIRD_PARTY_BUILD_TYPE}"    --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}"  # 编译
-        COMMAND ${CMAKE_COMMAND} --install ${build_dir} --config "${PANS_THIRD_PARTY_BUILD_TYPE}"   # 安装
-        COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"  # 写入缓存标记
-     )
+    # set(build_commands
+    #     COMMAND ${configure_command}  # 构建
+    #     COMMAND ${CMAKE_COMMAND} --build  "${build_dir}"  --config  "${PANS_THIRD_PARTY_BUILD_TYPE}"    --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}"  # 编译
+    #     COMMAND ${CMAKE_COMMAND} --install ${build_dir} --config "${PANS_THIRD_PARTY_BUILD_TYPE}"   # 安装
+    #     COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"  # 写入缓存标记
+    #  )
     # 多个 COMMAND 会按顺序执行  ，但是若第一条命令里的 Shell 环境变量修改，不会自动保留到第二条命令 即认为它们一定是在同一个持续存在的 Shell 会话里执行。
+
+### 为了减少第三方库在终端上的日志 ， 替换上上面的 set(build_commands...)
+# 第三方库的 configure/build/install 输出非常冗长，统一写入日志文件；
+    # 只有失败时才把日志尾部打印到终端（见 cmake/runDependencyStep.cmake）。
+    set(_pans_dep_log_dir "${build_dir}/logs")
+    # 编译命令：并行度为空时不传 --parallel，避免出现空参数
+    set(_pans_dep_build_cmd
+        "${CMAKE_COMMAND}" --build "${build_dir}" --config "${PANS_THIRD_PARTY_BUILD_TYPE}"
+    )
+    if(CMAKE_BUILD_PARALLEL_LEVEL)
+        list(APPEND _pans_dep_build_cmd --parallel "${CMAKE_BUILD_PARALLEL_LEVEL}")
+    endif()
+
+    pans_wrap_dependency_step(_pans_step_configure
+        "${_pans_dep_log_dir}" "configure" "${dep_NAME} configure" ${configure_command})
+
+    pans_wrap_dependency_step(_pans_step_build
+        "${_pans_dep_log_dir}" "build" "${dep_NAME} build" ${_pans_dep_build_cmd})
+
+    pans_wrap_dependency_step(_pans_step_install
+        "${_pans_dep_log_dir}" "install" "${dep_NAME} install"
+        ${CMAKE_COMMAND} --install "${build_dir}" --config "${PANS_THIRD_PARTY_BUILD_TYPE}")
+
+    set(build_commands
+        COMMAND ${_pans_step_configure}
+        COMMAND ${_pans_step_build}
+        COMMAND ${_pans_step_install}
+        COMMAND "${CMAKE_COMMAND}" "-DPANS_DEPS_STAMP_FILE=${cache_stamp}" "-DPANS_DEPS_STAMP_VALUE=${cache_key}" -P "${PROJECT_SOURCE_DIR}/cmake/writeDependencyStamp.cmake"  # 写入缓存标记
+    )
+
+
+### 为了减少第三方库在终端上的日志 
+
+
 
 
 # 先生成目标名称 ： 若dep_NAME = yaml-cpp  ， 那么ready_target = pans_dep_yaml-cpp_ready
@@ -470,7 +519,7 @@ function(pans_add_cmake_dependency)
             COMMENT "Building and installing third-party dependency: ${dep_NAME}"
             VERBATIM        # 让 CMake 对命令参数做正确的转义，避免 shell 解释特殊字符（空格、引号、$ 等）。
                             # /home/rzk/my project/output/ -> CMake 会对底层构建工具需要的特殊字符和路径参数进行适当转义，尽可能确保命令接收到的参数保持原样。
-            COMMAND_EXPAND_LISTS    # 展开命令参数中的 CMake 列表
+            #COMMAND_EXPAND_LISTS    # 展开命令参数中的 CMake 列表
                                     # CMake 列表通常以分号分隔。  
                                     #比如：  set(MY_ARGS "A;B;C")            
                                     # add_custom_target(example
@@ -488,7 +537,7 @@ function(pans_add_cmake_dependency)
             ${build_commands}
             COMMENT "Rebuilding thrid_party dependendcy : ${dep_NAME}"
             VERBATIM
-            COMMAND_EXPAND_LISTS
+            #COMMAND_EXPAND_LISTS
         )
     endif()
 
@@ -523,24 +572,24 @@ endfunction()
 # _pans_static_library :  lib@NAME@.a 
 set(_pans_static_library "${CMAKE_STATIC_LIBRARY_PREFIX}@NAME@${CMAKE_STATIC_LIBRARY_SUFFIX}")
 # -------- abseil-cpp --------
-set(_pans_abseil_source "${PANS_THIRD_PARTY_DIR}/abseil-cpp")
-pans_get_source_revision("${_pans_abseil_source}" _pans_abseil_revision)
-string(REPLACE "@NAME@" "abseil_base" _pans_abseil_library "${_pans_static_library}" )
-# _pans_abseil_library : 就变成  libabseil_base.a  
-message(STATUS "${_pans_abseil_library} ")
+set(_pans_absl_source "${PANS_THIRD_PARTY_DIR}/abseil-cpp")
+pans_get_source_revision("${_pans_absl_source}" _pans_absl_revision)
+string(REPLACE "@NAME@" "absl_base" _pans_absl_library "${_pans_static_library}" )
+# _pans_abseil_library : 就变成  libabsl_base.a  
+# message(STATUS "${_pans_abseil_library} ")
 pans_add_cmake_dependency(
     NAME abseil-cpp
-    SOURCE_DIR "${_pans_abseil_source}"
-    SOURCE_REVISION "${_pans_abseil_revision}"
+    SOURCE_DIR "${_pans_absl_source}"
+    SOURCE_REVISION "${_pans_absl_revision}"
     CMAKE_ARGS 
         "-DBUILD_SHARED_LIBS=OFF"
         "-DABSL_ENABLE_INSTALL=ON"
         "-DABSL_PROPAGATE_CXX_STD=ON"
         "-DABSL_BUILD_TESTING=OFF"
     SENTINELS
-        "lib/cmake/abseil/abseilConfig.cmake"
-        "include/abseil/base/config.h"
-        "lib/${_pans_abseil_library}"
+        "lib/cmake/abseil/abslConfig.cmake"
+        "include/absl/base/config.h"
+        "lib/${_pans_absl_library}"
 )
 
 
