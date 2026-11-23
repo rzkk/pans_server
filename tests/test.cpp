@@ -15,5 +15,6 @@ int main(){
     
     std::cout<< sizeof( std::size_t)<< std::endl;
     std::cout<< sizeof( std::uint64_t)<< std::endl;
-    func1(4);
+    // func1(0);
+    std::cout<<__FILE__<<std::endl;
 }

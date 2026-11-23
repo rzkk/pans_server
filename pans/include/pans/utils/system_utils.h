@@ -5,7 +5,7 @@
 #include<cstdint>
 #include<string>
 
-#include<pans/macros.h>
+// #include<pans/macros.h>
 #include<pans/export.h>
 
 namespace pans {

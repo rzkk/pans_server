@@ -13,7 +13,7 @@
 #define PANS_ASSERT(x,w)\
     if(!(x)) [[unlikely]]{ \
         std::cerr<<__FILE__<<":"<<__LINE__<<" ASSERT "<< #x <<" failed .[  "<<  w <<" ].\n Stacktrace: \n"<< pans::GetBacktrace();\
-        std::assert(x); \
+        assert(x); \
     } 
 
 //函数中的assert ,带有返回值的
@@ -42,13 +42,13 @@
 // 循环中的 assert 
 //x true : 正常
 #define ASSERT_CONTINUE(x , info) \
-    if(!(x))  [ [unlikely] ] {\
+    if(!(x))  [[unlikely]] {\
         PANS_ASSERT(x , info); \
         continue; \
     } else {}
 
 #define ASSERT_BREAK(x , info) \
-    if(!(x))  [ [unlikely] ] {\
+    if(!(x))  [[unlikely]] {\
         PANS_ASSERT(x , info); \
         break; \
     } else {}  
