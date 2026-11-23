@@ -183,11 +183,12 @@ endfunction()
 #   - 失败时打印日志尾部并终止构建
 # 用法：pans_wrap_dependency_step(<输出变量> <日志目录> <步骤名> <标题> <命令...>)
 function(pans_wrap_dependency_step out_var log_dir step title)
+    string(REPLACE ";" "\\;" escaped_cmd "${ARGN}")
     set(${out_var}
         "${CMAKE_COMMAND}"
         "-DLOG_FILE=${log_dir}/${step}.log"
         "-DLOG_TITLE=${title}"
-        "-DCMD=${ARGN}"
+        "-DCMD=${escaped_cmd}"
         -P "${PROJECT_SOURCE_DIR}/cmake/runDependencyStep.cmake"
         PARENT_SCOPE
     )
@@ -519,7 +520,7 @@ function(pans_add_cmake_dependency)
             COMMENT "Building and installing third-party dependency: ${dep_NAME}"
             VERBATIM        # 让 CMake 对命令参数做正确的转义，避免 shell 解释特殊字符（空格、引号、$ 等）。
                             # /home/rzk/my project/output/ -> CMake 会对底层构建工具需要的特殊字符和路径参数进行适当转义，尽可能确保命令接收到的参数保持原样。
-            #COMMAND_EXPAND_LISTS    # 展开命令参数中的 CMake 列表
+            COMMAND_EXPAND_LISTS    # 展开命令参数中的 CMake 列表
                                     # CMake 列表通常以分号分隔。  
                                     #比如：  set(MY_ARGS "A;B;C")            
                                     # add_custom_target(example
@@ -537,7 +538,7 @@ function(pans_add_cmake_dependency)
             ${build_commands}
             COMMENT "Rebuilding thrid_party dependendcy : ${dep_NAME}"
             VERBATIM
-            #COMMAND_EXPAND_LISTS
+            COMMAND_EXPAND_LISTS
         )
     endif()
 
@@ -803,7 +804,7 @@ find_package(Threads REQUIRED)  #这是给 pans 用的
 #这是是如何使用该目标的示例。使用时还需要链接 PkgConfig::PANS_LIBDW，目前只是完成了依赖查找。
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules( PANS_LIBDW            # 	查找结果变量使用的前缀
+    pkg_check_modules(  PANS_LIBDW            # 	查找结果变量使用的前缀
                         REQUIRED            #   找不到则停止配置
                         IMPORTED_TARGET     #   创建便于其他目标使用的 CMake 导入目标 ， 查找成功后，会创建：PkgConfig::PANS_LIBDW
                                             #    命令规则：PkgConfig::<prefix>
@@ -924,7 +925,8 @@ foreach(_pans_dependency_install_dir IN ITEMS
         DIRECTORY   "${_pans_dependency_install_dir}/" # 表示安装的是/tmp/yaml-cpp/ 内部的内容，而不是把 yaml-cpp 目录本身额外复制到目标目录。
         DESTINATION  "."
         PATTERN ".pans-cache-*" EXCLUDE  # 作用是排除符合该文件名模式的缓存标记文件。
-    )
+        PATTERN "*.pc" EXCLUDE # 不直接复制包含缓存安装前缀的 pkg-config 文件
+        )
 endforeach()
 
 install(

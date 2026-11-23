@@ -12,7 +12,7 @@ INSTALL_DIR="install/debug"
 
 BUILD_LOG="$BUILD_DIR/build.log"
 INSTALL_LOG="$BUILD_DIR/install.log"
-# rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
+rm -rf "$BUILD_DIR" "$INSTALL_DIR" 
 
 
 PARALLEL_LEVEL=$(( ($(nproc) * 3 + 1) / 2 ))
@@ -48,7 +48,5 @@ cmake --build "$BUILD_DIR" --parallel "$PARALLEL_LEVEL"
 #       --no-tests=error
 
  # --prefix "$INSTALL_DIR" \
-cmake --install "$BUILD_DIR" 
-
-# --prefix "$INSTALL_DIR"
+cmake --install "$BUILD_DIR" --prefix "$INSTALL_DIR"
 # --prefix "$BUILD_DIR/install"  # 指定安装目录                             

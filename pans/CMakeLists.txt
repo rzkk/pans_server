@@ -52,6 +52,7 @@ target_include_directories(pans
 # 使用 public  ， 本身就是为了将这份配置与pans库组合打包给用户用的
 target_link_libraries(pans PUBLIC   pans_options)    
 target_link_libraries(pans PUBLIC Threads::Threads)
+add_dependencies(pans pans_third_party_dependencies)
 
 # 用来查看函数堆栈的
 if(WIN32)
@@ -62,7 +63,7 @@ endif()
 
 target_link_libraries(pans PUBLIC yaml-cpp::yaml-cpp)
 
-add_dependencies(pans pans_third_party_dependencies)
+
 
 # 主库可能需要更严格的编译选项
 target_compile_options(pans PRIVATE
