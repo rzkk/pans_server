@@ -36,20 +36,24 @@ public:
      * @return std::wstring 转换失败时触发断言，返回空字符串
      */
     [[nodiscard]] static std::wstring StringToWString(std::string_view text) noexcept;
-    
+   
+    // C++ 所有的空白字符，包括空格、制表符、换行符、回车符、换页符和垂直制表符
     inline static constexpr std::string_view ASCII_WHITESPACE{" \t\n\r\f\v"};
-
+    //  用于字符串修剪的默认分隔符，即C++所有的空白字符  接口 string 
     [[nodiscard]] static std::string Trim(const std::string& text, std::string_view delimiters = ASCII_WHITESPACE);
-
+    // 修剪字符串两端的空白字符 接口string_view 
     [[nodiscard]] static std::string_view Trim(std::string_view text, std::string_view delimiters = ASCII_WHITESPACE) noexcept;
-
+    // 修剪字符串左端的空白字符 接口string
     [[nodiscard]] static std::string TrimLeft(const std::string& text, std::string_view delimiters = ASCII_WHITESPACE);
-
+    // 修剪字符串左端的空白字符 接口string_view
     [[nodiscard]] static std::string_view TrimLeft(std::string_view text, std::string_view delimiters = ASCII_WHITESPACE) noexcept;
     
+    // 修剪字符串右端的空白字符 接口string
     [[nodiscard]] static std::string TrimRight(const std::string& text, std::string_view delimiters = ASCII_WHITESPACE);
 
+    // 修剪字符串右端的空白字符 接口string_view
     [[nodiscard]] static std::string_view TrimRight(std::string_view text, std::string_view delimiters = ASCII_WHITESPACE) noexcept;
+
 };
 
 }
